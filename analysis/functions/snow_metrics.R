@@ -4,25 +4,28 @@
 # 2025-06-10
 
 # Note: These are standalone functions and relatively 'fragile'
-# Much more work can, and should, be done to harden them against
-# missing data, date issues, etc.
+# TODO: Much more work can, and should, be done to harden them against missing data, date issues, etc.
+
+# TODO: Finish filling out roxygen skeletons
 
 # Functions include those that compute:
-# Peak SWE
-# Peak SWE timing
+# Maximum SWE
+# Maximum SWE timing
 # Snow cover duration
 # First snow day
 # Snow off day
-# Snow melt season
-# Snowmelt rate
-# Pre peak melt
-# SWE:P ratio
+# Snowmelt season length
+# Snowmelt rate during metl season
+# April 1st SWE
+# Pre maximum SWE snowmelt
 # Center of mass of snowmelt
-# TODO: Kate's SSI
+# Snow seasonality metric 
+# SWE:P ratio
+# TODO: Add SSI from Hale et al. (2023)
 
 #' Compute maximum snow water equivalent when given a series of SWE values
 #'
-#' @param SWE 
+#' @param SWE SWE data
 #'
 #' @returns Maximum snow water equivalent
 #' @export
@@ -32,60 +35,161 @@ maxSWE <- function(SWE){
   max(SWE, na.rm = T)
 }
 
+#' Compute the water year day of maximum snow water equivalent when given a series of SWE and DOWY values
+#'
+#' @param SWE SWE data
+#' @param DOWY Day of water year (Oct. 1 = 1, Sep. 30 = 365 or 366)
+#'
+#' @returns The DOWY when Max SWE occurs
+#' @export
+#'
+#' @examples
 maxSWE_DOWY <- function(SWE, DOWY){
   DOWY[which.max(SWE)]
 }
 
+#' Compute snow cover duration: the total number of days in a water year with snow cover
+#'
+#' @param SWE SWE data
+#' @param SWE_THRESH The SWE threshold over which we determine snow cover to be present (default = 0)
+#'
+#' @returns Total number of days with snow cover
+#' @export
+#'
+#' @examples
 scd <- function(SWE, SWE_THRESH=0){
   sum(SWE > SWE_THRESH, na.rm = T)
 }
 
+#' Compute the date (day of water year) of first snow 
+#'
+#' @param SWE SWE data
+#' @param DOWY Day of water year (Oct. 1 = 1, Sep. 30 = 365 or 366)
+#' @param SWE_THRESH The SWE threshold over which we determine snow cover to be present (default = 0)
+#'
+#' @returns The day of water year (1-366) of the first measurable snow cover
+#' @export
+#'
+#' @examples
 firstSnow <- function(SWE, DOWY, SWE_THRESH=0){
   DOWY[min(which(SWE > SWE_THRESH))]
 }
 
+#' Compute the snow-off date (day of water year): the first day after max SWE with 0 snow 
+#'
+#' @param SWE SWE data
+#' @param DOWY Day of water year (Oct. 1 = 1, Sep. 30 = 365 or 366)
+#' @param MAX_SWE_DOWY Day of water year when max SWE occurs
+#' @param SWE_THRESH The SWE threshold over which we determine snow cover to be present (default = 0)
+#'
+#' @returns The day of water year (1-366) when snow disappears after max SWE
+#' @export
+#'
+#' @examples
 lastSnow <- function(SWE, DOWY, MAX_SWE_DOWY, SWE_THRESH=0){
   DOWY[min(which(SWE <= SWE_THRESH & DOWY > MAX_SWE_DOWY))]
 }
 
+#' Compute the total melt season length in days 
+#'
+#' @param MAX_SWE_DOWY max SWE day of water year
+#' @param SNOW_OFF_DOWY snow-off day of water year
+#'
+#' @returns Total number of days between max SWE and the snow off DOWY
+#' @export
+#'
+#' @examples
 meltSeason <- function(MAX_SWE_DOWY, SNOW_OFF_DOWY){
   SNOW_OFF_DOWY - MAX_SWE_DOWY
 }
 
+#' Compute the average melt season snowmelt rate
+#'
+#' @param MELT_SEASON Length of melt season (between max SWE DOWY and snow off DOWY) in days
+#' @param MAX_SWE Maximum snow water equivalent
+#'
+#' @returns Average melt season snowmelt rate
+#' @export
+#'
+#' @examples
 meltRate <- function(MELT_SEASON, MAX_SWE){
   MAX_SWE / MELT_SEASON
 }
 
+#' Compute the SWE on April 1st, the traditional water supply forecast date
+#'
+#' @param SWE SWE data
+#' @param DOWY Day of water year (Oct. 1 = 1, Sep. 30 = 365 or 366)
+#' @param WYEAR Water year
+#'
+#' @returns SWE on April 1
+#' @export
+#'
+#' @examples
 april1SWE <- function(SWE, DOWY, WYEAR){
   ifelse(WYEAR[1] %% 4 == 0,
          SWE[min(which(DOWY == 184))],
          SWE[min(which(DOWY == 183))])
 }
 
+#' Compute total snowmelt that occurs before max SWE
+#'
+#' @param SWE Snow water equivalent
+#' @param DOWY Day of water year
+#' @param MAX_SWE_DOWY Max SWE day of water year
+#'
+#' @returns Total snowmelt before max SWE
+#' @export 
+#'
+#' @examples
 preMaxMelt <- function(SWE, DOWY, MAX_SWE_DOWY){
   tmp_swe <- SWE[DOWY < MAX_SWE_DOWY]
   tmp_melt <- tmp_swe - lag(tmp_swe)
   sum(tmp_melt[tmp_melt < 0], na.rm = T)
 }
 
+#' Compute the snowmelt center of mass day of water year
+#' This assumes negative SWE changes are snowmelt and we compute melt across the 
+#' whole water year, not just the "melt season"
+#'
+#' @param SWE Snow water equivalent
+#' @param DOWY Day of water year
+#'
+#' @returns The day of the water year when the center of mass of snowmelt occurs
+#' @export
+#'
+#' @examples
 meltCoM <- function(SWE, DOWY){
+  # Compute the change in SWE
   tmp_melt <- na.omit(SWE - lag(SWE))
+  # Cumulative sum of snowmelt
   cumulative_melt <- cumsum(ifelse(tmp_melt < 0,
                                    tmp_melt,
                                    0))
+  # Total annual snowmelt
   total_melt = sum(tmp_melt[tmp_melt < 0])
+  # Snowmelt center of mass
   center_melt = total_melt / 2
+  # Difference from center of snowmelt mass
   melt_diff_from_center = abs(cumulative_melt - center_melt)
+  # Day of water year of difference (+1 to account for lag trim)
   which.min(melt_diff_from_center) + 1
 }
-tmp <- df %>% filter(wyear == 2012) %>%  select(date, snow_water_equivalent, dowy)
-tmp$swe_change <- tmp$snow_water_equivalent - lag(tmp$snow_water_equivalent)
-tmp <- tmp %>% na.omit()
 
-tmp$cumulative_melt <- cumsum(ifelse(tmp$swe_change < 0,
-                                     tmp$swe_change,
-                                     0)) 
-
+#' Compute the snow seasonality metric (SSM) from Petersky and Harpold (2018)
+#' Petersky, R., & Harpold, A. (2018). 
+#'     Now you see it, now you don't: a case study of ephemeral snowpacks and soil 
+#'     moisture response in the Great Basin, USA. 
+#'     Hydrology and Earth System Sciences, 22(9), 4891-4906.
+#'
+#' @param SWE Snow water equivalent 
+#' @param SWE_THRESH Threshold above which we consider snow cover to be present (default = 0)
+#' @param DAY_THRESH The number of continuous days when we consider snow cover to be seasonal (default = 60)
+#'
+#' @returns The SSM from -1 to 1 where -1 is totally ephemeral and 1 is totally seasonal
+#' @export
+#'
+#' @examples
 snowSeasonality <- function(SWE, SWE_THRESH=0, DAY_THRESH=60){
   snow_flag = ifelse(SWE > SWE_THRESH, 1, 0)
   tmp_rle <- rle(snow_flag)
@@ -99,25 +203,15 @@ snowSeasonality <- function(SWE, SWE_THRESH=0, DAY_THRESH=60){
   ssm
 }
 
+#' Compute the ratio of maximum SWE to total annual precipitation (SWE:P ratio)
+#'
+#' @param MAX_SWE Maximum snow water equivalent
+#' @param PPT Precipitation
+#'
+#' @returns SWE:P ratio
+#' @export
+#'
+#' @examples
 sweToPptRatio <- function(MAX_SWE, PPT){
   MAX_SWE / sum(PPT, na.rm = T)
 }
-  
-  
-  
-funtest <- df %>% 
-  group_by(wyear) %>% 
-  summarize(max_swe = maxSWE(snow_water_equivalent), 
-            max_swe_dowy = maxSWE_DOWY(snow_water_equivalent, dowy), 
-            scd_days = scd(snow_water_equivalent),
-            snow_on_day = firstSnow(snow_water_equivalent, dowy),
-            snow_off_day = lastSnow(snow_water_equivalent, dowy, max_swe_dowy),
-            melt_season_days = meltSeason(max_swe_dowy, snow_off_day),
-            melt_rate = meltRate(melt_season_days, max_swe),
-            ssm = snowSeasonality(snow_water_equivalent), 
-            swe_apr1 = april1SWE(snow_water_equivalent, dowy, wyear), 
-            pre_max_swe_melt = preMaxMelt(snow_water_equivalent, dowy, max_swe_dowy),
-            melt_com = meltCoM(snow_water_equivalent, dowy),
-            swe_to_ppt = sweToPptRatio(max_swe, precipitation))
-
-cumsum(c(1, 2, 3, NA, 5))
