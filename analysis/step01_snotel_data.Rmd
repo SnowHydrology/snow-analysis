@@ -1,7 +1,9 @@
 ---
-title: "Step 01: Getting SNOTEL Data"
-output: html_notebook
-author: Keith Jennings
+title: 'Step 01: Getting SNOTEL Data'
+author: "Keith Jennings"
+output:
+  html_notebook: default
+  pdf_document: default
 ---
 
 # Setting up R
