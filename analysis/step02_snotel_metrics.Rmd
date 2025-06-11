@@ -22,6 +22,7 @@ Next, we will `source` the functions I've created to derive water year informati
 
 ```{r}
 source("functions/snow_metrics.R")
+source("functions/meteo_metrics.R")
 source("functions/water_year.R")
 ```
 
@@ -193,10 +194,19 @@ metrics <- df_filter %>%
             ssm = snowSeasonality(swe_mm), 
             swe_apr1_mm = april1SWE(swe_mm, dowy, wyear), 
             pre_max_swe_melt_mm = preMaxMelt(swe_mm, dowy, max_swe_dowy),
+            pre_max_swe_melt_max_swe_ratio = preMaxMeltMaxSWERatio(pre_max_swe_melt_mm, max_swe_mm),
             melt_com_day = meltCoM(swe_mm, dowy),
             swe_to_ppt_ratio = sweToPptRatio(max_swe_mm, ppt_mm),
-            total_annual_ppt_mm = sum(ppt_mm, na.rm = T),
-            mean_annual_tair_degC = mean(tair_av_degC))
+            fall_ppt_mm = seasonalPrecip(ppt_mm, date, SEASON = "fall"),
+            winter_ppt_mm = seasonalPrecip(ppt_mm, date, SEASON = "winter"),
+            spring_ppt_mm = seasonalPrecip(ppt_mm, date, SEASON = "spring"),
+            summer_ppt_mm = seasonalPrecip(ppt_mm, date, SEASON = "summer"),
+            annual_ppt_mm = totalPrecip(ppt_mm),
+            fall_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "fall"),
+            winter_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "winter"),
+            spring_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "spring"),
+            summer_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "summer"),
+            annual_tair_degC = meanTemp(tair_av_degC))
 
 
 ```
