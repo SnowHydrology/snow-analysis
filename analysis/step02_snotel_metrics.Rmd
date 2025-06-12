@@ -2,8 +2,8 @@
 title: 'Step 02: Computing Relevant Snow Metrics on a Subset of SNOTEL Stations'
 author: "Keith Jennings"
 output:
-  html_notebook: default
   pdf_document: default
+  html_notebook: default
 ---
 
 # Getting started
@@ -16,6 +16,8 @@ library(snotelr)
 library(cowplot)
 theme_set(theme_cowplot())
 library(knitr)
+library(Kendall)
+library(trend)
 ```
 
 Next, we will `source` the functions I've created to derive water year information and compute snow metrics. These files can be found in `analysis/functions`.
@@ -34,9 +36,7 @@ You can see these functions now in your Environment pane. All the `source` funct
 
 ## Useful metadata
 
-In our work we will want to use all or most of the long-term SNOTEL records, but here we'll start with a subset. There are myriad ways to define this.
-
-We need a couple data sources. One is the SNOTEL metadata we can grab from `snotelr`:
+In our work we will want to use all or most of the long-term SNOTEL records, but here we'll start with a subset. To start building this subset, we'll need a couple data sources. One is the SNOTEL metadata we can grab from `snotelr`:
 
 ```{r}
 snotel_info <- snotel_info()
@@ -85,11 +85,12 @@ The combined dataframe includes multiple columns we can use to split the data. A
   - `r all_info %>% filter(Eco_Region == "WestMnts" & Is_CAMELS == "Y" & Hgraph_Type == "snow-dom") %>% nrow()` match
 - And so on...
 
-For now, we'll start with a relatively small SNOTEL and CAMELS subset.
+For now, we'll start with a relatively small SNOTEL and USGS Gages II Reference subset with at least 40 yrs of data.
 
 ```{r}
 subset_info <- all_info %>% 
-  filter(Is_CAMELS == "Y") 
+  filter(year(start) <= 1985 & year(end) >= 2024) %>% 
+  filter(Is_GAGES2_Ref == "Y")
 ```
 
 There are some duplicates in the subset, so we'll filter to just the highest elevation basins (assuming they're more representative of the SNOTEL-observed snow conditions).
@@ -111,6 +112,11 @@ Now we'll identify the `site_id` for each station in our subset, put it in a vec
 
 ```{r}
 sites <- subset_info %>% pull(site_id)
+```
+
+**NOTE: If you don't want to wait while snotelr downloads the dataset, skip ahead to the commented-out cell that says `df <- readRDS("../data/snotel_camels_subset.RDS")`, uncomment it, and run it.**
+
+```{r}
 df <- snotel_download(sites, internal = T)
 ```
 
@@ -179,7 +185,25 @@ df_filter <-
              by = c("site_id", "wyear"))
 ```
 
-# Calculate annual metrics
+# Calculate metrics
+
+Now we'll use our SNOTEL data subset to compute various metrics:
+
+- Maximum snow water equivalent (SWE)
+- Maximum SWE day of water year (DOWY)
+- Snow cover duration
+- Snow-on day
+- Snow-off day
+- Melt season length
+- Snowmelt rate
+- Snow seasonality metric (SSM)
+- April 1 SWE
+- Snowmelt before max SWE
+- Snowmelt before max SWE percent of total snowmelt
+- Snowmelt before max SWE to max SWE ratio
+- Snowmelt center of mass DOWY
+- Peak SWE to annual precipitation ratio
+- And several meteorological data metrics
 
 ```{r}
 metrics <- df_filter %>% 
@@ -194,6 +218,7 @@ metrics <- df_filter %>%
             ssm = snowSeasonality(swe_mm), 
             swe_apr1_mm = april1SWE(swe_mm, dowy, wyear), 
             pre_max_swe_melt_mm = preMaxMelt(swe_mm, dowy, max_swe_dowy),
+            pre_max_swe_melt_total_melt_pct = preMaxMeltPctTotalMelt(pre_max_swe_melt_mm, swe_mm),
             pre_max_swe_melt_max_swe_ratio = preMaxMeltMaxSWERatio(pre_max_swe_melt_mm, max_swe_mm),
             melt_com_day = meltCoM(swe_mm, dowy),
             swe_to_ppt_ratio = sweToPptRatio(max_swe_mm, ppt_mm),
@@ -207,319 +232,181 @@ metrics <- df_filter %>%
             spring_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "spring"),
             summer_tair_degC = seasonalTemp(tair_av_degC, date, SEASON = "summer"),
             annual_tair_degC = meanTemp(tair_av_degC))
-
-
 ```
+
+We can take a quick look at these tabular data.
 
 ```{r}
 metrics %>% 
-  ggplot(aes(wyear, swe_to_ppt, color = as.factor(site_id))) +
-  geom_line()
-```
-
-
-## Summarize by ecoregion
-
-# Compute trends
-
-## Summarize by region
-
-
-
-
-
-
-# What is SNOTEL?
-
-SNOTEL, for the uninitiated, is the Snow Telemetry network run by the US Department of Agriculture's Natural Resources Conservation Service (NRCS). The NRCS has sited these stations across the mountain west to better monitor snow water equivalent (SWE, the liquid depth of water contained in a snowpack if it were completely melted) and related climate variables such as air temperature and precipitation. 
-
-Although it has its shortcomings, SNOTEL is the premier US snow dataset. Researchers use it for model development and validation, trend detection, process-based studies, and myriad other purposes. Water managers and other operations professionals rely on these data for water supply forecasts, making them incredibly valuable to decision-making in the arid and semi-arid west.
-
-# Exploring snotelr
-
-The snotelr package for R provides the functions we need to easily, reproducibly access SNOTEL data. First, let's see what stations we're working with by using the `snotel_info()` function.
-
-```{r}
-# Access the snotel metadata and save it as a dataframe
-info <- snotel_info()
-
-# View the top 5 lines
-info %>% head()
-```
-
-Here we see information such as the network name, state, site name, start and end date of measurements, lat-lon, elevation, and the unique site id. We will use this information to downselect sites for further processing.
-
-One of my favorite SNOTEL sites is Niwot in Colorado. We can view its metadata by filtering the info dataframe to just the single entry that contains the word "niwot" in the `site_name` column.
-
-```{r}
-info %>% filter(str_detect(site_name, "niwot"))
-```
-
-We see now it's in Boulder County, Colorado at an elevation of 3030 m and its record runs from 1979-10-01 to present day.
-
-We can next use the `snotel_download()` function to download all of Niwot's data.
-
-```{r}
-# Name the site_id
-nwt_id = 663
-
-# Download to a dataframe
-df <- snotel_download(
-  site_id = nwt_id,
-  internal = TRUE    # save the file to R workspace (can also be saved locally)
-)
-
-```
-
-A quick look at the data reveals the information snotelr can provide from the SNOTEL network:
-
-```{r}
-df %>% head()
-```
-
-In this file we see a fair amount of redundant information from the site metadata (we'll strip this out later) along with new data such as `snow_water_equivalent`, `snow_depth`, `temperature_min/max/mean`, and `precipitation`. In the next section we'll start working with these data.
-
-# Processing and analyzing SNOTEL data
-
-One of the first things we'll do is strip out the redundant information (keeping only the `site_id` column for later joining with the metadata) and process the date info.
-
-```{r}
-# Select the columns we want
-df <- df %>% 
-  select(site_id:precipitation)
-
-# Format the date
-df <- df %>% 
-  mutate(date = ymd(date))
-
-# Create a water year function
-# Requires the lubridate package loaded under tidyverse
-wateryear <- function(date){
-  ifelse(month(date) >= 10,
-         year(date) + 1,
-         year(date))
-}
-
-# Create a day of water year function 
-# Requires the lubridate package loaded under tidyverse
-day_of_wateryear <- function(date){
-  ifelse(year(date) %% 4 != 0,
-         ifelse(month(date) >= 10,
-                yday(date) - 273,
-                yday(date) + 92),
-         ifelse(month(date) >= 10,
-                yday(date) - 274,
-                yday(date) + 92))
-}
-
-# Add a water year column to the dataset
-df <- df %>% 
-  mutate(wyear = wateryear(date),
-         dowy = day_of_wateryear(date))
-
-```
-
-Now that we've formatted the date, we can plot SWE data.
-
-```{r}
-ggplot(df, aes(date, snow_water_equivalent)) + 
-  geom_line()
-```
-
-Hmm, that's no good unless you like looking at squiggly migraine lines. Let's plot a single year of data instead and add some axes info.
-
-```{r}
-plot_yr = 2025
-df %>% 
-  filter(wyear == plot_yr) %>% 
-  ggplot(aes(date, snow_water_equivalent)) +
-  geom_line() + 
-  labs(x = "Date",
-       y = "SWE (mm)")
-```
-
-This is what snow hydrologists call a niveograph (like a hydrograph for snow) where the date is on the x-axis and SWE is on the y-axis.
-
-A niveograph tells us all sorts of information about a snowpack.
-
-![image](../images/niveograph_jennings_2019.png)
-
-The above plot from Jennings and Molotch (2019) shows a few simple metrics that we can compute from SWE data on a niveograph. A few others include the accumulation and melt seasons (pre- and post-peak SWE, respectively), snowmelt center of mass (when 50% of peak SWE has melted), and snow-on and snow-off dates (when the period of consistent, or continuous, snow cover begins and ends). We'll dive more into these metrics later.
-
-Suffice it to say we will see inter-year differences. Take, for example, 2011 vs. 2012:
-
-```{r}
-plot_yrs = c(2011,2012)
-df %>% 
-  filter(wyear %in% plot_yrs) %>% 
-  ggplot(aes(dowy, snow_water_equivalent, color = as.factor(wyear))) +
-  geom_line() + 
-  labs(x = "Day of Water Year",
-       y = "SWE (mm)") +
-  scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-  theme(legend.position = c(0.8, 0.8))
-```
-
-A glance at the above plot tells us a couple obvious things:
-
-1. 2011 had a higher, later peak SWE than 2012
-2. 2011 had more snow covered days than 2012
-
-Rather than just visually assessing the data we can quantify it:
-
-```{r}
-df %>% 
-  filter(wyear %in% plot_yrs) %>% 
-  group_by(wyear) %>% 
-  summarize(max_swe = max(snow_water_equivalent),
-            max_swe_dowy = which.max(snow_water_equivalent),
-            snow_off_dowy = min(which(snow_water_equivalent == 0 & dowy > max_swe_dowy)),
-            melt_season_days = as.numeric(snow_off_dowy - max_swe_dowy),
-            melt_rate = max_swe / melt_season_days) %>% 
-  mutate(across(where(is.numeric), ~ round(.x, 1))) %>% 
-  kable(col.names = c("Water Year", "Max SWE (mm)", "Max SWE DOWY", 
-                      "Snow Off DOWY", "Melt Season (d)", "Melt Rate (mm/d)"))
-
-```
-
-In the next notebook, we'll take this form of analysis a step further and produce a series of metrics for multiple sites using R functions we create. Before that, though, we'll look at some other SNOTEL data that is available via `snotelr` and a URL-builder approach.
-
-# Other SNOTEL variables
-
-## From snotelr
-
-The `snotelr` package also retrieves ancillary met data like air temperature and precipitation (both incremental and cumulative).
-
-```{r}
-plot_grid(
-  df %>% 
-  filter(wyear == plot_yr) %>% 
-  ggplot(aes(date, temperature_mean)) +
-  geom_line() + 
-  labs(x = "Date",
-       y = "Mean Daily Air Temperature (°C)"),
-  df %>% 
-  filter(wyear == plot_yr) %>% 
-  ggplot(aes(date, precipitation)) +
-  geom_bar(stat = "identity") + 
-  labs(x = "Date",
-       y = "Daily Precipitation (mm)"),
-  ncol = 2
-)
-```
-
-In fact, we can view the cumulative precip data from the two snow years plotted above to see the difference between a drought and non-drought year.
-
-```{r}
-df %>% 
-  filter(wyear %in% plot_yrs) %>% 
-  ggplot(aes(dowy, precipitation_cumulative, color = as.factor(wyear))) +
-  geom_line() + 
-  labs(x = "Day of Water Year",
-       y = "SWE (mm)") +
-  scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-  theme(legend.position = c(0.1, 0.8))
-```
-
-In 2012 there were long stretches of zero precipitation. It was what's called a *dry* snow drought. There are also *warm* snow droughts. We can explore this concept further in the synchrony work if needed.
-
-## SNOTEL data URLs
-
-Another, non-snotelr way to get SNOTEL data is to build a URL that accesses it. (You can also use the [SNOTEL API](wcc.sc.egov.usda.gov/awdbRestApi/swagger-ui/index.html#/Data/getData) if you want to play around with different URL structures.)
-
-```{r}
-# This functions downloads all of the available sensor data
-# If you want just the regular SNOTEL met and snow data, replace "report=ALL" with "report=STAND"
-allDownload <- function(ID, WYEAR){
-  dl1 = "https://wcc.sc.egov.usda.gov/nwcc/view?intervalType=Historic+&report=ALL&timeseries=Daily&format=copy&sitenum="
-  dl2 = "&year="
-  dl3 = "&month=WY"
-  read.csv(url(paste0(dl1,
-                      ID,
-                      dl2,
-                      WYEAR,
-                      dl3)),
-           stringsAsFactors = F,
-           skip = 6, na.strings = "-99.9")
-}
-```
-
-Here, all we need to do is supply the site ID and the water year(s):
-
-```{r}
-new_site = 784
-new_years = c(2015, 2019)
-new_df <- map_dfr(new_years, ~ allDownload(ID = new_site, WYEAR = .x))
-```
-
-A look at the data shows some new columns, with very ugly names:
-
-```{r}
-new_df %>% 
   head()
 ```
 
-The columns starting with `SMS` and `STO` correspond to soil moisture and temperature, respectively, from different levels beneath the ground surface. The numbers (e.g., 2, 8, 20) in the column names correspond to the sensors depths in inches. Yes, inches. 
+We can also plot some of the outcomes.
 
-Like we did previously, we'll add some date information and visualize the data.
+## Maximum SWE
 
-```{r}
-# Format the date and add wy info
-new_df <- new_df %>% 
-  mutate(date = ymd(Date),
-         wyear = wateryear(date),
-         dowy = day_of_wateryear(date))
-```
-
-Because this is a new site, Palisades Tahoe in CA's Sierra Nevada, we'll look at SWE from a good (2019) and bad (2015) snow year. 
-
-```{r}
-new_df %>% 
-  ggplot(aes(dowy, WTEQ.I.1..in., color = as.factor(wyear))) +
+```{r fig.height=8, fig.width=7.5}
+ggplot(metrics, aes(wyear, max_swe_mm)) + 
   geom_line() + 
-  labs(x = "Day of Water Year",
-       y = "SWE (mm)") +
-  scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-  theme(legend.position = c(0.8, 0.8))
+  facet_wrap(~as.factor(site_id), ncol = 4) +
+  labs(x = "Water Year", y = "Max SWE (mm)")
+
 ```
 
-Fortunately, we lived in Reno in 2019 and not 2015. 
+# Snow cover duration (SCD)
 
-We can also plot the different depths of soil moisture.
+```{r fig.height=8, fig.width=7.5}
+ggplot(metrics, aes(wyear, scd_days)) + 
+  geom_line() + 
+  facet_wrap(~as.factor(site_id), ncol = 4) +
+  labs(x = "Water Year", y = "SCD (d)")
+
+```
+
+## Snow seasonality metric (SSM)
+
+```{r fig.height=8, fig.width=7.5}
+ggplot(metrics, aes(wyear, ssm)) + 
+  geom_line() + 
+  facet_wrap(~as.factor(site_id), ncol = 4) +
+  labs(x = "Water Year", y = "SSM")
+
+```
+
+## Pre-max SWE snowmelt as percent of total snowmelt
+
+```{r fig.height=8, fig.width=7.5}
+ggplot(metrics, aes(wyear, pre_max_swe_melt_total_melt_pct)) + 
+  geom_line() + 
+  facet_wrap(~as.factor(site_id), ncol = 4) +
+  labs(x = "Water Year", y = "Pre-Max SWE Melt (%)")
+
+```
+
+However, it is hard to tell what, if anything, is happening at our sites over time. So what we'll do next is compute some trends.
+
+# Compute trends
+
+First we'll make a function to make a "long" version of our `metrics` dataframe and then compute various trend stats, such as the Mann-Kendall p-value and Sen's slope.
 
 ```{r}
-# Plot the soil moisture traces
-plot_grid(
-  new_df %>% 
-    ggplot(aes(dowy, SMS.I.1..2..pct....silt., color = as.factor(wyear))) +
-    geom_line() + 
-    scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-    labs(x = "Day of Water Year", y = "2-inch\nSoil Moisture\n(%)"),
-  new_df %>% 
-    ggplot(aes(dowy, SMS.I.1..8..pct....silt., color = as.factor(wyear))) +
-    geom_line() + 
-    scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-    labs(x = "Day of Water Year", y = "8-inch\nSoil Moisture\n(%)"),
-  new_df %>% 
-    ggplot(aes(dowy, SMS.I.1..20..pct....silt., color = as.factor(wyear))) +
-    geom_line() + 
-    scale_color_manual(values = c("#0072B2", "#E69F00"),
-                     name = "Water\nYear") +
-    labs(x = "Day of Water Year", y = "20-inch\nSoil Moisture\n(%)"),
-  ncol = 1
-)
+analyze_snow_trends <- function(DF) {
+  # Pivot to make long dataframe
+  df_long <- DF %>%
+    pivot_longer(
+      cols = -c(site_id, wyear), # could add column names as argument to make function generalizable
+      names_to = "metric",
+      values_to = "value"
+    ) %>%
+    filter(!is.na(value)) %>%    # remove NAs
+    filter(!is.infinite(value))  # remove Infs
+  
+  # Take df_long and compute trend values per site_id and metric
+  df_long %>%
+    group_by(site_id, metric) %>%
+    summarise(
+      n_years = n(),
+      mann_kendall = list(MannKendall(value)),
+      sens_slope = list(sens.slope(value)),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      mk_tau = map_dbl(mann_kendall, ~ .x$tau),
+      mk_p = map_dbl(mann_kendall, ~ .x$sl),
+      sen_slope = map_dbl(sens_slope, ~ .x$estimates),
+      sen_p = map_dbl(sens_slope, ~ .x$p.value)
+    ) %>%
+    select(site_id, metric, n_years, mk_tau, mk_p, sen_slope, sen_p)
+}
 ```
 
-Let's move on now to computing snow metrics across sites and water years for our synchrony work.
+Now we'll apply this function to `metrics`.
 
+```{r}
+trends <- analyze_snow_trends(metrics)
+trends %>% 
+  head()
+```
 
-# Further reading and info
+We can view distributions of the Mann-Kendall p-values and Sen's slopes.
 
-- [snotelr R package](https://cran.r-project.org/web/packages/snotelr/index.html)
-- [SNOTEL website](https://www.nrcs.usda.gov/resources/data-and-reports/snow-and-climate-monitoring-predefined-reports-and-maps)
-- Jennings, K. S., & Molotch, N. P. (2019). The sensitivity of modeled snow accumulation and melt to precipitation phase methods across a climatic gradient. Hydrology and Earth System Sciences, 23(9), 3765-3786.  <https://doi.org/10.5194/hess-23-3765-2019>
+```{r fig.height=9.5, fig.width=7.5}
+ggplot(trends, aes(mk_p)) +
+  geom_density(fill = "lightblue") + 
+  geom_vline(xintercept = 0.05, lty = "dashed") + 
+  facet_wrap(~metric, ncol = 3, scales = "free") +
+  labs(x = "Mann-Kendall p-values", y = "Density")
+```
+
+```{r fig.height=9.5, fig.width=7.5}
+ggplot(trends, aes(sen_slope)) +
+  geom_density(fill = "lightblue") + 
+  geom_vline(xintercept = 0, lty = "dashed") + 
+  facet_wrap(~metric, ncol = 3, scales = "free") +
+  labs(x = "Sen's Slopes", y = "Density")
+```
+
+We can now re-examine some of the previous plots, looking at only sites with significant changes.
+
+## Maximum SWE with statistically siginificant trends
+
+```{r}
+p_thresh = 0.05
+metrics %>% 
+  filter(site_id %in% filter(trends, metric == "max_swe_mm" & mk_p < 0.05)$site_id) %>% 
+  ggplot(aes(wyear, max_swe_mm)) + 
+  geom_line() + 
+  geom_smooth(method = "lm", se = F, color = "red") +
+  facet_wrap(~as.factor(site_id), scales = "free") +
+  labs(x = "Water Year", y = "Max SWE (mm)")
+```
+
+## SCD with statistically siginificant trends
+
+```{r}
+metrics %>% 
+  filter(site_id %in% filter(trends, metric == "scd_days" & mk_p < 0.05)$site_id) %>% 
+  ggplot(aes(wyear, scd_days)) + 
+  geom_line() + 
+  geom_smooth(method = "lm", se = F, color = "red") +
+  facet_wrap(~as.factor(site_id), scales = "free") +
+  labs(x = "Water Year", y = "SCD (d)")
+```
+
+## Snow seasonality metric (SSM) with statistically siginificant trends
+
+```{r}
+metrics %>% 
+  filter(site_id %in% filter(trends, metric == "ssm" & mk_p < 0.05)$site_id) %>% 
+  ggplot(aes(wyear, ssm)) + 
+  geom_line() + 
+  geom_smooth(method = "lm", se = F, color = "red") +
+  facet_wrap(~as.factor(site_id), scales = "free") +
+  labs(x = "Water Year", y = "SSM")
+```
+
+## Pre-max SWE snowmelt as percent of total snowmelt with statistically siginificant trends
+
+```{r, fig.height=7, fig.width=7.5}
+metrics %>% 
+  filter(site_id %in% filter(trends, metric == "pre_max_swe_melt_total_melt_pct" & mk_p < 0.05)$site_id) %>% 
+  ggplot(aes(wyear, pre_max_swe_melt_total_melt_pct)) + 
+  geom_line() + 
+  geom_smooth(method = "lm", se = F, color = "red") +
+  facet_wrap(~as.factor(site_id), scales = "free", ncol =3) +
+  labs(x = "Water Year", y = "Pre-Max SWE Melt (%)")
+```
+
+We can summarize the trends even further to see which ones have the most prevalent statistically significant results.
+
+```{r}
+p_thresh = 0.05
+trend_summary <- trends %>% 
+  group_by(metric) %>% 
+  summarize(mk_pct_sig = (sum(mk_p < p_thresh) / n()) * 100,
+            sen_slope_av = mean(sen_slope),
+            sen_slope_av_sig = mean(sen_slope[mk_p < p_thresh]))
+trend_summary %>% 
+  arrange(-mk_pct_sig)
+```
+
