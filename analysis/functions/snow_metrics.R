@@ -18,6 +18,7 @@
 # Snowmelt rate during metl season
 # April 1st SWE
 # Pre maximum SWE snowmelt amount
+# Pre maximum SWE snowmelt percent of total melt
 # Pre maximum SWE snowmelt as proportion of peak SWE
 # Center of mass of snowmelt
 # Snow seasonality metric 
@@ -148,6 +149,25 @@ preMaxMelt <- function(SWE, DOWY, MAX_SWE_DOWY){
   tmp_melt <- tmp_swe - lag(tmp_swe)
   sum(tmp_melt[tmp_melt < 0], na.rm = T)
 }
+
+#' Compute pre-max melt as percent of total melt
+#'
+#' @param PRE_MAX_MELT Total snowmelt before max SWE
+#' @param SWE Snow water equivalent
+#'
+#' @returns
+#' @export
+#'
+#' @examples
+preMaxMeltPctTotalMelt <- function(PRE_MAX_MELT, SWE){
+  # Time series of change in SWE
+  tmp_melt <- SWE - lag(SWE)
+  # Sum negatives (i.e. melt)
+  total_melt <- sum(tmp_melt[tmp_melt < 0], na.rm = T)
+  # Compute percent of total 
+  (PRE_MAX_MELT / total_melt) * 100
+}
+
 
 #' Pre-max SWE snowmelt to peak SWE ratio
 #'
