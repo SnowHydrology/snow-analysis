@@ -1,0 +1,266 @@
+---
+title: 'Step 03: Accessing and Analyzing Spatial SWE Data'
+author: "Keith Jennings"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# Getting started
+
+First, we need to load our packages like we did in our previous notebook.
+
+```{r}
+library(tidyverse)
+library(cowplot)
+theme_set(theme_cowplot())
+library(knitr)
+library(snotelr)
+library(terra)  # working with raster and vector data
+library(sf)     # geospatial transforms and processing
+library(exactextractr) # fast spatial summaries
+```
+
+# Why do we need spatial SWE data if SNOTEL exists?
+
+Let's explore the answer to this question with some numbers. First we'll import the SNOTEL and river basin metadata like we did in the previous notebook.
+
+```{r warning=F, message=F}
+# snotel metadata
+snotel_info <- snotel_info() %>% 
+  mutate(HUC = stringr::str_extract(string = description,
+                                           pattern = "(?<=\\().*(?=\\))"))
+# harbor dataset of river basin metadata
+harbor_url <- "https://raw.githubusercontent.com/peckhams/nextgen_basin_repo/refs/heads/main/__Collated/collated_basins_all.tsv"
+basin_info <- read_tsv(harbor_url)
+# join the two into one dataset
+all_info <- left_join(snotel_info,
+                 basin_info,
+                 by = "HUC")
+```
+
+In total, there are `r snotel_info %>% nrow()` SNOTEL stations, `r snotel_info %>% filter(year(start) <= 1985) %>% nrow()` of which started their service life 40 or more years ago. Not bad.
+
+However, these SNOTEL stations are only in the mountains of the western US and Alaska, precluding other regions from analysis. 
+
+They also only cover a limited number of river basins, making it more difficult to explore snow-flow synchrony. For example, of the  `r filter(basin_info, Is_CAMELS == "Y") %>% pull(Site_ID) %>% unique() %>% length()` unique CAMELS basins in HARBOR, only `r filter(all_info, Is_CAMELS == "Y") %>% pull(Site_ID) %>% unique() %>% length()` have a SNOTEL station. 
+
+What's more, SNOTEL stations measure a fraction of their containing basins and often do not represent surrounding snow conditions in complex terrain (e.g., Molotch and Bales, 2006).
+
+> Molotch, N.P. and Bales, R.C. (2006), SNOTEL representativeness in the Rio Grande headwaters on the basis of physiographics and remotely sensed snow cover persistence. Hydrol. Process., 20: 723-739. <https://doi.org/10.1002/hyp.6128>
+
+# Accessing spatial SWE data
+
+To respond to these shortcomings, we can use spatial SWE data. While myriad products exist (all of which have their own pros and cons), we will focus here on the well validated, easily accessible [University of Arizona product](https://climate.arizona.edu/data/UA_SWE/).
+
+It's produced daily on a 4 km and 800 m grid.
+
+There are multiple ways of accessing the data, but for expediency's sake, I downloaded the water year 2021 NetCDF from their file server: <https://climate.arizona.edu/data/UA_SWE/WYData_4km/UA_SWE_Depth_WY2021.nc>
+
+It's included in the `data` directory and we can import it now.
+
+```{r}
+# File path
+nc_file <- "../data/UA_SWE_Depth_WY2021.nc"
+
+# Read the NetCDF using terra
+swe_raster <- rast(nc_file)
+```
+
+We can also get some information about the data
+
+```{r}
+# Check netcdf file info
+swe_raster
+```
+
+In the above we see important data points like the spatial resolution, the extent, the coordinate reference system (CRS), the variables (SWE and snow depth) and their units (mm), the layer names, and time.
+
+Conveniently, each layer is designated by the variable (SWE and DEPTH) plus the day of water year.
+
+Let's look at some data now. We can start with just the numeric element.
+
+```{r}
+plot(swe_raster[[150]])
+```
+
+We can also use the layer name for SWE...
+
+```{r}
+plot(swe_raster[["SWE_180"]])
+```
+
+...and snow depth.
+
+```{r}
+plot(swe_raster[["DEPTH_180"]])
+```
+
+# Analyzing spatial SWE data
+
+However, looking at pretty maps of SWE and snow depth won't help our synchrony work.
+
+We'll start the process by summarizing the 1 year of SWE data from our file to a single basin where we have SNOTEL observations. (Future work should extend this to all years and basins of interest.)
+
+## Our basin
+
+I extracted our basin from the USGS GAGES II dataset [here](https://doi.org/10.5066/P96CPHOT). Specifically, this is the basin for USGS gage 06187915, which is part of the GAGES II Reference subset. It also encompasses SNOTEL station 670, which has expressed statistically significant declines in maximum SWE amount and timing and the percent of total melt that occurs before max SWE. 
+
+Now we'll import this basin polygon and match the CRS to the SWE data.
+
+```{r}
+# Name the file
+basin_file <- "../data/usgs_06187915_basin.shp"
+
+# Load basin shapefile 
+basin <- st_read(basin_file)
+
+# Ensure coordinate reference systems match
+basin <- st_transform(basin, crs(swe_raster))
+```
+
+Here's what it looks like:
+
+```{r}
+plot(basin$geometry)
+```
+
+Wow, not very interesting. Let's continue.
+
+## Basin, U of A SWE, and SNOTEL become one
+
+First we'll provide a better visualization of the basin and the UofA SWE product.
+
+```{r, fig.height=7.5, fig.width=7.5}
+# Grab one day of the data
+plot_swe <- swe_raster[["SWE_150"]]
+
+# Convert basin to SpatVector
+basin_vect <- vect(basin)
+
+# Crop and mask the SWE raster to the basin area buffer
+buffered_basin <- terra::buffer(basin_vect, width = 10000)  # 20 km buffer
+plot_swe <- crop(plot_swe, buffered_basin)
+
+# Convert the SWE into a dataframe to plot in ggplot
+swe_df <- as.data.frame(plot_swe, xy = TRUE, na.rm = TRUE)
+names(swe_df)[3] <- "swe_mm"
+
+# Plot
+ggplot() +
+  geom_raster(data = swe_df, aes(x = x, y = y, fill = swe_mm)) +
+  scale_fill_viridis_c(option = "G", name = "SWE (mm)") +
+  geom_sf(data = basin, fill = NA, color = "chartreuse", lwd = 2) +
+  coord_sf(xlim = range(swe_df$x), ylim = range(swe_df$y)) +
+  theme(axis.title = element_blank(), legend.position = "bottom") +
+  labs(title = paste0("Simulated SWE for Basin 06187915 on ", time(plot_swe)))
+
+```
+
+There we can the basin outline for 06187915 and simulated SWE from `r time(plot_swe)`.
+
+The other thing we'll do is summarize the SWE data within the basin and compare it to the SNOTEL data.
+
+```{r}
+# Summarize each day of SWE across the basin using exactextractr
+basin_swe <- exact_extract(swe_raster, basin, fun = "mean")
+
+# Transpose to get one row per day
+basin_swe <- as.data.frame(t(basin_swe)) %>% 
+  rename(value = V1) %>% 
+  mutate(variable = str_extract(row.names(.), "(?<=\\.)[^_]+"),
+         dowy = as.numeric(str_extract(row.names(.), "(?<=_)\\d+")),
+         wyear = 2021)
+
+# Quick look at data
+basin_swe %>% 
+  head()
+```
+
+Let's now import the SNOTEL SWE data for that year and join it to the spatial SWE data.
+
+```{r}
+# Import SNOTEL data and filter to just time and basin of interest
+snotel_swe <- readRDS("../data/snotel_camels_subset.RDS") %>% 
+  filter(wyear == "2021" & site_id == 670)
+
+# Join to a version of the basin SWE data
+all_swe <- left_join(
+  basin_swe %>% filter(variable == "SWE") %>% 
+    select(swe_mm = value, dowy),
+  snotel_swe,
+  by = "dowy"
+)
+
+all_swe %>% 
+  head
+```
+
+First thing we'll do is plot the two SWE traces.
+
+```{r}
+all_swe %>% 
+  select(date, swe_mm.x, swe_mm.y) %>% 
+  pivot_longer(cols = -date) %>% 
+  ggplot(aes(date, value, color = name)) + 
+  geom_line(lwd = 1) + 
+  scale_color_manual(breaks = c("swe_mm.x", "swe_mm.y"),
+                     values = c("purple", "black"),
+                     labels = c("UofA", "SNOTEL"),
+                     name = "Source") +
+  labs(x = "Date", y = "SWE (mm)")
+```
+
+There are some obvious major differences (SWE magnitude, snow cover duration, snow off date, etc.), which we can explore at a later time. Right now I'll note that the UofA SWE product assimilates SNOTEL observed SWE and differences may arise from point vs. basin elevational differences, the assimilation protocol of the product, and the snowmelt model used to create it. (And, this is only one location so we shouldn't infer too much about model performance.)
+
+We can also look at a scatterplot.
+
+```{r}
+ggplot(all_swe, aes(swe_mm.y, swe_mm.x)) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, lty = "dashed", color = "darkred") +
+  annotate(geom = "text", x = 170, y = 150, label = "1:1 line", color = "darkred") +
+  labs(x = "SNOTEL SWE (mm)", y = "UofA SWE (mm)")
+```
+
+It doesn't look great, but just for laughs, and for our future work, we'll compute a few performance metrics.
+
+```{r}
+# Functions for performance metrics
+nse <- function(sim, obs) {
+  1 - sum((sim - obs)^2) / sum((obs - mean(obs))^2)
+}
+kge <- function(sim, obs) {
+  r <- cor(sim, obs)
+  alpha <- sd(sim) / sd(obs)
+  beta <- mean(sim) / mean(obs)
+  1 - sqrt((r - 1)^2 + (alpha - 1)^2 + (beta - 1)^2)
+}
+mean_absolute_bias <- function(sim, obs){
+  mean(sim) - mean(obs)
+}
+mean_relative_bias <- function(sim, obs){
+  ((mean(sim) - mean(obs)) / mean(obs)) * 100
+}
+
+# Compute performance on the data
+swe_performance <- all_swe %>% 
+  summarize(nse = nse(swe_mm.x, swe_mm.y),
+            kge = kge(swe_mm.x, swe_mm.y),
+            mab = mean_absolute_bias(swe_mm.x, swe_mm.y),
+            mrb = mean_relative_bias(swe_mm.x, swe_mm.y))
+
+# View the metrics
+swe_performance
+
+```
+
+# What next?
+
+1. Generate research questions with the main project and other sub-projects
+2. Identify snow data needs
+3. Build out a targets-based workflow for data access, processing, and analysis (likely expanding to all long-term SNOTEL stations and spatial SWE from selected basins with USGS stream gages)
+4. Download and process all necessary data
+5. Compute performance metrics for modeled SWE products we want to use
+6. Perform bias correction as necessary
+7. Calculate snow cover properties for point and spatial SWE data to relate to streamflow data in synchrony framework
