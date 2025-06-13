@@ -55,9 +55,9 @@ To respond to these shortcomings, we can use spatial SWE data. While myriad prod
 
 It's produced daily on a 4 km and 800 m grid.
 
-There are multiple ways of accessing the data, but for expediency's sake, I downloaded the water year 2021 NetCDF from their file server: <https://climate.arizona.edu/data/UA_SWE/WYData_4km/UA_SWE_Depth_WY2021.nc>
+There are multiple ways of accessing the data, but for expediency's sake, I downloaded the water year 2021 NetCDF file from their server: <https://climate.arizona.edu/data/UA_SWE/WYData_4km/UA_SWE_Depth_WY2021.nc>
 
-It's included in the `data` directory and we can import it now.
+It's included in the `/data` directory and we can import it now.
 
 ```{r}
 # File path
@@ -67,7 +67,7 @@ nc_file <- "../data/UA_SWE_Depth_WY2021.nc"
 swe_raster <- rast(nc_file)
 ```
 
-We can also get some information about the data
+We can get some information about the data after we've imported the file.
 
 ```{r}
 # Check netcdf file info
@@ -104,9 +104,9 @@ We'll start the process by summarizing the 1 year of SWE data from our file to a
 
 ## Our basin
 
-I extracted our basin from the USGS GAGES II dataset [here](https://doi.org/10.5066/P96CPHOT). Specifically, this is the basin for USGS gage 06187915, which is part of the GAGES II Reference subset. It also encompasses SNOTEL station 670, which has expressed statistically significant declines in maximum SWE amount and timing and the percent of total melt that occurs before max SWE. 
+I extracted our basin from the USGS GAGES II dataset [here](https://doi.org/10.5066/P96CPHOT). Specifically, this is the basin for USGS gage 06187915, which is part of the GAGES II Reference subset. It also encompasses SNOTEL station 670, which has expressed statistically significant declines in maximum SWE, snow cover duration, and the percent of total melt that occurs before max SWE. 
 
-Now we'll import this basin polygon and match the CRS to the SWE data.
+We'll import this basin polygon and match the CRS to the SWE data.
 
 ```{r}
 # Name the file
@@ -157,7 +157,7 @@ ggplot() +
 
 ```
 
-There we can the basin outline for 06187915 and simulated SWE from `r time(plot_swe)`.
+There we can see the basin outline for 06187915 and the simulated SWE from `r time(plot_swe)`.
 
 The other thing we'll do is summarize the SWE data within the basin and compare it to the SNOTEL data.
 
@@ -211,7 +211,7 @@ all_swe %>%
   labs(x = "Date", y = "SWE (mm)")
 ```
 
-There are some obvious major differences (SWE magnitude, snow cover duration, snow off date, etc.), which we can explore at a later time. Right now I'll note that the UofA SWE product assimilates SNOTEL observed SWE and differences may arise from point vs. basin elevational differences, the assimilation protocol of the product, and the snowmelt model used to create it. (And, this is only one location so we shouldn't infer too much about model performance.)
+There are some obvious major differences (SWE magnitude, snow cover duration, snow off date, etc.), which we can explore at a later time. Right now I'll note that the UofA SWE product assimilates SNOTEL observed SWE and divergences may arise from point vs. basin elevational differences, the assimilation protocol of the product, and the snowmelt model used to create it. (And, this is only one location so we shouldn't infer too much about model performance.)
 
 We can also look at a scatterplot.
 
@@ -254,6 +254,8 @@ swe_performance <- all_swe %>%
 swe_performance
 
 ```
+
+That's it for this portion of the analysis. At this point we've set the stage for future work with code that we can extend and repurpose.
 
 # What next?
 

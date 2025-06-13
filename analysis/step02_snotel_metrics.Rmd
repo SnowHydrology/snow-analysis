@@ -120,7 +120,7 @@ sites <- subset_info %>% pull(site_id)
 df <- snotel_download(sites, internal = T)
 ```
 
-In case we have any bandwidth issues, I have saved a version of this dataframe that we can re-import if needed. First, we'll select just the columns we need.
+First, we'll select just the columns we need.
 
 ```{r}
 # Downselect to just the columns we want
@@ -144,6 +144,8 @@ df <- df %>%
 ```
 
 Then we'll save it as an RDS file (I've commented this part out because it doesn't need to re-run).
+
+*Note: I saved the file for two reasons: 1) in case we have bandwidth issues and 2) to analyze again in the next notebook.*
 
 ```{r}
 # saveRDS(object = df,
@@ -410,3 +412,4 @@ trend_summary %>%
   arrange(-mk_pct_sig)
 ```
 
+Now that we've looked at these data, we'll explore the use of spatial SWE information in our work.

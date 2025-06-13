@@ -2,8 +2,8 @@
 title: 'Step 01: Getting SNOTEL Data'
 author: "Keith Jennings"
 output:
-  html_notebook: default
   pdf_document: default
+  html_notebook: default
 ---
 
 # Setting up R
@@ -50,7 +50,7 @@ One of my favorite SNOTEL sites is Niwot in Colorado. We can view its metadata b
 info %>% filter(str_detect(site_name, "niwot"))
 ```
 
-We see now it's in Boulder County, Colorado at an elevation of 3030 m and its record runs from 1979-10-01 to present day.
+We see it's in Boulder County, Colorado at an elevation of 3030 m and its record runs from 1979-10-01 to present day.
 
 We can next use the `snotel_download()` function to download all of Niwot's data.
 
@@ -212,13 +212,13 @@ df %>%
   ggplot(aes(dowy, precipitation_cumulative, color = as.factor(wyear))) +
   geom_line() + 
   labs(x = "Day of Water Year",
-       y = "SWE (mm)") +
+       y = "Cumulative Precipitation (mm)") +
   scale_color_manual(values = c("#0072B2", "#E69F00"),
                      name = "Water\nYear") +
   theme(legend.position = c(0.1, 0.8))
 ```
 
-In 2012 there were long stretches of zero precipitation. It was what's called a *dry* snow drought. There are also *warm* snow droughts. We can explore this concept further in the synchrony work if needed.
+In 2012 there were long stretches of zero precipitation. It was a *dry* snow drought. There are also *warm* snow droughts. We can explore this concept further in the synchrony work if needed.
 
 ## SNOTEL data URLs
 
