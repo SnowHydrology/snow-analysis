@@ -2,8 +2,8 @@
 title: 'Step 02: Computing Relevant Snow Metrics on a Subset of SNOTEL Stations'
 author: "Keith Jennings"
 output:
-  pdf_document: default
   html_notebook: default
+  pdf_document: default
 ---
 
 # Getting started
@@ -117,7 +117,10 @@ sites <- subset_info %>% pull(site_id)
 **NOTE: If you don't want to wait while snotelr downloads the dataset, skip ahead to the commented-out cell that says `df <- readRDS("../data/snotel_camels_subset.RDS")`, uncomment it, and run it.**
 
 ```{r}
+time_start = Sys.time()
 df <- snotel_download(sites, internal = T)
+time_end = Sys.time()
+time_end - time_start
 ```
 
 First, we'll select just the columns we need.
@@ -236,6 +239,13 @@ metrics <- df_filter %>%
             annual_tair_degC = meanTemp(tair_av_degC))
 ```
 
+```{r}
+# Export data 
+saveRDS(object = metrics,
+        file = "../data/snotel_camels_subset_metrics.RDS")
+```
+
+
 We can take a quick look at these tabular data.
 
 ```{r}
@@ -329,6 +339,13 @@ trends <- analyze_snow_trends(metrics)
 trends %>% 
   head()
 ```
+
+```{r}
+# Export trends data
+saveRDS(object = trends,
+        file = "../data/snotel_camels_subset_trends.RDS")
+```
+
 
 We can view distributions of the Mann-Kendall p-values and Sen's slopes.
 
